@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+reader.lock
+reader_log.txt

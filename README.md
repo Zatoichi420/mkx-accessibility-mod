@@ -4,8 +4,24 @@ A planned tool to make **Mortal Kombat X** (Steam, appid `307780`, installed as 
 usable without sight — starting with the launcher/menus, mode select, character
 select, and options, the same scope the sister projects below started with.
 
-**Status: planning / Phase 0 research.** No reader has been written yet — see
-[PROGRESS.md](PROGRESS.md) for the phased plan and current findings.
+**Status: Phase 1 baseline running, Phase 0 research well underway.** A
+working OCR + reference-library narrator (ported from Legacy Kollection,
+see `ocr_reader/`) is in place, though its `known_screens/` library is
+still empty — nobody has captured/verified an MKX screen yet, so today it
+falls back to live OCR for everything. In parallel, Phase 0's static/live
+memory analysis has already found real, named hook targets for a faster,
+exact Phase 2 narrator. See [PROGRESS.md](PROGRESS.md) for the full log.
+
+## Setup
+
+```
+pip install -r requirements.txt
+python ocr_reader/main.py
+```
+
+Requires NVDA running. See `ocr_reader/run_reader.bat` /
+`start_reader.vbs` to auto-start alongside the game via a Steam launch
+option, same as the sister projects.
 
 ## Sister projects (same author, same overall approach)
 

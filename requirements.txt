@@ -1,0 +1,4 @@
+pywin32==312
+pillow==12.3.0
+numpy==2.5.1
+winsdk==1.0.0b10

@@ -121,11 +121,48 @@ project's precedent.
   (audio, screen, resources), so it's being held for an explicit go-ahead
   rather than done unprompted.
 
-### Remaining Phase 0 work
+### Live test (2026-09-08) — process confirmed, read access confirmed
 
-1. Launch the game and confirm which process is live (`MK10.exe` expected
-   per the above) and that `dbghelp` can attach to a *running* instance the
-   same way it read the on-disk files.
+Launched MKX via `steam://rungameid/307780` and confirmed with `tasklist`:
+**`MK10.exe` is the only game process that appears** (no separate
+`MK10Game.exe`/`MKXLauncher.exe` process stays running) — matches the PDB
+naming and the community Cheat Engine tables exactly, as predicted.
+
+Wrote a second small ctypes script (`tools/live_check.py` in this repo) that:
+1. Snapshots the live process's modules (`CreateToolhelp32Snapshot`) to get
+   `MK10.exe`'s *actual* loaded base address.
+2. Opens the process with `PROCESS_VM_READ` and calls `ReadProcessMemory`
+   at `live_base + RVA` for `GUIScreenManager`.
+
+**Result: the read succeeded cleanly** (`ReadProcessMemory` returned success,
+32 bytes back, no access-denied error) — confirms external memory reading
+against this game works with zero friction, exactly as the existing
+community Cheat Engine tables imply. One important correction to earlier
+assumptions: **the module does NOT load at its preferred image base — ASLR
+is active** (loaded at `0x7FF617000000` vs. the PE's preferred
+`0x140000000`). Any real tool must resolve the live base at runtime (via
+`CreateToolhelp32Snapshot`/`Module32First`, as the script does) and add the
+PDB-derived RVA to *that*, never hardcode an absolute address.
+
+The bytes read back for `GUIScreenManager` were all zero. Not a failure —
+the game was likely still sitting on an unskipped intro/legal splash screen
+(the sister GameCube projects' READMEs note the same thing: "nothing is
+spoken during the intro logos... press Start to get past the logos"), and
+there was no way to send it a "press Start" keypress from this session
+(no input-injection tool available here). An all-zero read is also
+consistent with `GUIScreenManager`'s internal screen map legitimately being
+empty at that point. **Not yet confirmed**: reading a non-zero, meaningfully
+populated value once the game is actually sitting at the main menu — that
+needs either an input-injection tool added to the toolkit, or the user
+playing for a few seconds while a probe script polls in the background.
+Game was closed (`taskkill`) after the test rather than left idling.
+
+### Remaining Phase 0 / early Phase 2 work
+
+1. Get a real "game is at the main menu" read of `GUIScreenManager` (or
+   confirm it's the wrong lead and pivot to hooking `UIMainMenuScreen`
+   directly instead) — needs either input injection or a short live session
+   with the user actually at the controls.
 2. Use the PDB's type information (not just symbol names — `SymGetTypeInfo`
    in the same dbghelp API) to work out the actual field layout of
    `UIScreenManager` and `UIGridSelection`, so `GUIScreenManager` and a
@@ -137,13 +174,35 @@ project's precedent.
 
 ### Phase 1 — Guaranteed-feasible baseline (OCR + reference library)
 
-Port the Legacy Kollection `ocr_reader/` architecture near-verbatim: capture
-the MKX window → dHash → match against a hand-built `known_screens/*.json`
-library (main menu, mode select, character-select grid, options) → speak via
-the NVDA Controller Client DLL. Copy its hardened reliability patterns rather
-than re-deriving them. This alone produces working menu narration even if
-Phase 0 finds nothing usable, exactly as it did for Legacy Kollection when
-memory-hooking dead-ended there.
+**Done (2026-09-08), scaffolded and syntax-checked, not yet live-tested.**
+Ported Legacy Kollection's `ocr_reader/main.py` and `screen_library.py`
+near-verbatim (same dHash-based screen recognition, same NVDA Controller
+Client speech backend, same hardened reliability patterns — NVDA startup
+retry, `speak()` failure self-heal with audible beep, PID-lock duplicate-
+instance protection, consecutive-poll-failure exit threshold). Also copied
+`nvda_controller_client/` (the redistributable NVDA SDK) and the
+`run_reader.bat`/`start_reader.vbs` Steam-launch-option auto-start
+mechanism. `requirements.txt` matches Legacy Kollection's pinned versions
+(pywin32, pillow, numpy, winsdk) — already installed in this machine's
+Python and confirmed importable.
+
+Game-specific changes from the Legacy Kollection original:
+- `PROCESS_NAME` set to `MK10.exe` (confirmed live, see above).
+- `known_screens/` starts **empty** — nobody has captured/hand-verified an
+  MKX screen yet, so every screen currently falls back to live OCR and gets
+  logged to `library_misses/` for later review, exactly as designed for an
+  unpopulated library.
+- The highlight-detection color thresholds (`BRIGHTNESS_THRESHOLD`,
+  `BLUE_MINUS_RED_THRESHOLD`) are **carried over unchanged from Legacy
+  Kollection and explicitly flagged `NEEDS_CALIBRATION`** in the code —
+  they were tuned for that launcher's cyan/gold highlight style, not
+  MKX's (unknown, Scaleform-rendered) style. Safe failure mode until
+  recalibrated: highlight detection just won't fire, not fire wrong.
+
+**Not yet done**: an actual live-test run against the game (needs the game
+sitting at a real menu, which needs either input-injection or the user at
+the controls — see the Phase 0 live-test note above for why that's still
+pending), and capturing/verifying the first `known_screens/` entries.
 
 ### Phase 2 — Live memory reads (Phase 0 found strong leads — see above)
 
@@ -171,9 +230,14 @@ Deception project; revisit later if the baseline works.
 
 ## Resume point
 
-Nothing implemented yet, but Phase 0's static analysis is largely done and
-found real, named hook targets (see above) — this project is on a
-noticeably better track than Legacy Kollection was at the same stage. Next
-action: get sign-off to launch the actual game and confirm the live process
-+ start pulling `UIScreenManager`/`UIGridSelection` type layouts, or start
-Phase 1's OCR baseline in parallel.
+Phase 0's static + live analysis found real, named hook targets (see
+above), and Phase 1's OCR/library baseline is scaffolded and syntax-checked
+in `ocr_reader/`. Neither has been live-tested against the game actually
+sitting at a menu yet — both are blocked on the same thing: getting the
+game past its unskipped intro screens, which needs either an input-
+injection tool or the user briefly at the controls. Next actions, in no
+particular order: (1) a short live session to get the reader past the
+intro and capture/verify the first `known_screens/` entries — this also
+naturally produces a real screenshot to calibrate the highlight-color
+thresholds against; (2) pull `UIScreenManager`/`UIGridSelection` type
+layouts via the PDB's type info for Phase 2.
