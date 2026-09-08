@@ -157,16 +157,105 @@ needs either an input-injection tool added to the toolkit, or the user
 playing for a few seconds while a probe script polls in the background.
 Game was closed (`taskkill`) after the test rather than left idling.
 
+### Type-layout findings (2026-09-08, second session) — the concrete read targets
+
+Wrote `tools/dump_type_layout.py`: same dbghelp-via-ctypes technique as
+`dump_pdb_symbols.py`, but calling `SymGetTypeFromNameW` +
+`SymGetTypeInfo(..., TI_FINDCHILDREN, ...)` to pull actual field-by-field
+struct layouts (name/offset/size/type) straight out of the PDB, instead of
+just function/global names. (Debugging note kept in the script's comments:
+the real dbghelp enumerator for "get a type's children" is `TI_FINDCHILDREN`
+— there is no `TI_GET_CHILDREN` — and `TI_GET_OFFSET` is 10, not 8; getting
+either wrong produces a useless generic `ERROR_INVALID_FUNCTION` with no
+hint why. Worth remembering if this script is ever extended.)
+
+Results — this is the concrete read plan for Phase 2:
+
+- **`UIScreenManager`** (80 bytes) has exactly one field: `m_Screens` at
+  `+0x00`, a `TMap<FString, UIScreenManager::UIScreenData>`. So
+  `GUIScreenManager` (the global) *is* that map directly (no extra
+  indirection) — walking it means walking a `TMap`, which needs its own
+  layout dumped (`TMap`/`TMapBase`/`TArray` are engine container templates,
+  not yet dumped — next thing to pull if this path is pursued).
+- **`UIScreenManager::UIScreenData`** (152 bytes, the map's value type):
+  `slotId` (+0x00), `screenGroup` (+0x04), `bPersistent` (+0x0C),
+  `screenItem` (+0x18, an `MKItemNoDestroy` — Scaleform object handle),
+  `cachedScreen` (+0x38, a `UIScreenCache`). This is a registry of loaded
+  screens, not obviously a single "current screen" pointer — matches its
+  method names (`AddScreen`, `SavePersistentScreens`). May need combining
+  with `bPersistent`/`screenGroup` filtering, or may turn out to be the
+  wrong lead entirely for "what's the ONE active screen" vs. "what's
+  loaded" — genuinely unresolved, needs live data to tell.
+- **`UIGridSelection`** (96 bytes) — the real prize:
+  `mCursors` at `+0x30` is a `TArray<UIGridSelectionCursor>`, and
+  **`UIGridSelectionCursor`** (16 bytes) is:
+  `selectionTableIndex` (int, +0x00), `bIsActive` (+0x04), `bIsSelected`
+  (+0x08), `bCursorHidden` (+0x0C). **`selectionTableIndex` is exactly the
+  "which cell is currently selected" number a narrator needs** — this is
+  the single most directly usable field found in the whole investigation.
+  `mNavTable` at `+0x20` is a `TArray<UIGridSelectionNavTable>`, and
+  **`UIGridSelectionNavTable`** (40 bytes) holds a `base` position plus
+  `leftMove`/`rightMove`/`upMove`/`downMove` (each a `UIGridSelectionPosition`,
+  presumably a row/column pair) — the adjacency graph, useful later for
+  row/column narration but not required just to speak "item N".
+- **`UIMainMenuScreen`** (680 bytes) confirmed `NUM_COLUMNS`/
+  `GRID_SELECT_COLUMN` as static constants and `mNumMenuItems` (+0x58) as a
+  real instance field, plus a long list of `MKItem`/`MKItemNoDestroy`
+  (Scaleform movie-clip handle, 32 bytes each) fields for every visible UI
+  element — including **`mPressStartMessageAnim`** (+0x180), which
+  confirms the "press start" prompt is a real, named UI element in this
+  screen's code. That's independent evidence the attract-mode loop (see
+  below) does eventually reach an interactive title screen; it just wasn't
+  reached in this session's live test.
+
+**Not yet dumped** (natural next static-analysis step, no game needed):
+`TMap`/`TArray`'s own template layout (needed to actually walk `m_Screens`
+or `mCursors` from raw memory), `UIGridSelectionPosition`, `MKItem`/
+`MKItemNoDestroy`/`MKClassInfo`.
+
+### Input-injection attempt (2026-09-08, second session) — game launched but never reached an interactive screen
+
+With the user away from the computer, tried to get further than the earlier
+live test by driving the game with synthetic input instead of waiting for a
+live session: `tools/send_key.py` (`SendInput`, not `SendKeys`/WM_CHAR,
+since many fullscreen games ignore the latter) and `tools/capture_now.py`
+(a standalone `PrintWindow` screenshot, reusing `ocr_reader/main.py`'s
+capture code) let this session both act on and *see* the game without a
+person present — screenshots were read back and visually inspected each
+time.
+
+Confirmed the game's window class is **`LaunchUnrealUWindowsClient`** —
+independent confirmation of the UE3 lineage (this is a literal stock UE3
+window class name), on top of the `Coalesced.ini`/Scaleform evidence
+already found.
+
+However: **over roughly 6 minutes of runtime, sending Enter/Space/Escape
+and mouse clicks repeatedly, the game stayed on a rotating cinematic
+montage** (a "MORTAL KOMBAT" title card interspersed with several different
+gameplay/cutscene clips - snowy forest, a jungle scene, a temple courtyard -
+cycling on a fixed ~15-20s timer) and never showed any visible UI text or
+reached `UIMainMenuScreen`. None of the synthetic input appeared to have any
+effect on this — the same clips played back in the same way whether or not
+a key was sent, suggesting this is either a fixed-length unskippable intro
+reel, or the game specifically requires a **gamepad** input to dismiss it
+(a synthetic keyboard key was sent; no controller input was tried, and none
+is available from this environment). This is a real, useful negative
+result: don't assume a quick Enter-press gets past this next time — it may
+need a controller, a longer wait for the reel to finish on its own, or
+simply a person there to see what it's actually prompting for. Game was
+closed (`taskkill`) afterward rather than left running unattended.
+
 ### Remaining Phase 0 / early Phase 2 work
 
-1. Get a real "game is at the main menu" read of `GUIScreenManager` (or
-   confirm it's the wrong lead and pivot to hooking `UIMainMenuScreen`
-   directly instead) — needs either input injection or a short live session
-   with the user actually at the controls.
-2. Use the PDB's type information (not just symbol names — `SymGetTypeInfo`
-   in the same dbghelp API) to work out the actual field layout of
-   `UIScreenManager` and `UIGridSelection`, so `GUIScreenManager` and a
-   live grid-widget instance can be read/interpreted correctly.
+1. Get a real "game is at the main menu" read of `GUIScreenManager`'s
+   `m_Screens` and a live `UIGridSelection::mCursors[].selectionTableIndex`
+   — needs a live session where the game actually reaches
+   `UIMainMenuScreen` (see the input-injection note above for why that
+   didn't happen unattended this time). Once there, `selectionTableIndex`
+   is the read to try first.
+2. Dump `TMap`/`TArray`'s own layout so `m_Screens`/`mCursors` can actually
+   be walked from raw process memory (pure static analysis, no game
+   needed — can be done before the next live session).
 3. Scope the tool to **offline/local play only** and say so explicitly in
    the README/legal section, matching Deception's "online out of scope"
    precedent — don't attempt anything against the game's online/matchmaking
@@ -228,16 +317,29 @@ Online play / Kombat League / matchmaking, live round-by-round fighting
 narration, Krypt loot-grinding minutiae. Mirrors the precedent set in the
 Deception project; revisit later if the baseline works.
 
-## Resume point
+## Resume point (updated after second 2026-09-08 session)
 
-Phase 0's static + live analysis found real, named hook targets (see
-above), and Phase 1's OCR/library baseline is scaffolded and syntax-checked
-in `ocr_reader/`. Neither has been live-tested against the game actually
-sitting at a menu yet — both are blocked on the same thing: getting the
-game past its unskipped intro screens, which needs either an input-
-injection tool or the user briefly at the controls. Next actions, in no
-particular order: (1) a short live session to get the reader past the
-intro and capture/verify the first `known_screens/` entries — this also
-naturally produces a real screenshot to calibrate the highlight-color
-thresholds against; (2) pull `UIScreenManager`/`UIGridSelection` type
-layouts via the PDB's type info for Phase 2.
+Everything static-analysis-shaped that could be done without a person at
+the controls has been done: Phase 1's OCR baseline is scaffolded, and
+Phase 2 now has concrete read targets from the PDB's type info —
+`UIGridSelectionCursor::selectionTableIndex` in particular is the field to
+read for "which menu item is selected." What's blocking further progress
+on both phases is the same thing an unattended session can't solve: **the
+game does not reach an interactive menu on its own** — it sits on a
+multi-minute, apparently input-immune cinematic attract reel (see the
+"Input-injection attempt" note above). A real person needs to either wait
+it out or provide input the synthetic keyboard approach didn't (possibly a
+controller).
+
+**When you're back, in order of what unblocks the most:**
+1. Launch the game yourself and get it past the intro to the actual main
+   menu (note whether keyboard alone ever does it, or whether you needed a
+   controller/took longer than ~6 minutes — that's useful data either way).
+2. Once at the main menu, either: let me poll `GUIScreenManager` and
+   `UIGridSelection::mCursors[].selectionTableIndex` live while you move
+   the cursor (fastest way to confirm the Phase 2 read targets above are
+   right), and/or run `ocr_reader/main.py` and press F10 on a few screens
+   to seed `known_screens/` (also gives real pixels to calibrate the
+   highlight-color thresholds against).
+3. Everything else in this file's Phase 0/1/2/3 sections still applies
+   once past that point.
