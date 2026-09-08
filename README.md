@@ -14,14 +14,22 @@ exact Phase 2 narrator. See [PROGRESS.md](PROGRESS.md) for the full log.
 
 ## Setup
 
-```
-pip install -r requirements.txt
-python ocr_reader/main.py
-```
+Double-click **`install.bat`**. That's it — it installs the Python
+dependencies, checks NVDA is running, and adds a shortcut to your Windows
+Startup folder so the reader quietly starts itself every time you log in
+and waits (using almost no resources) until it sees Mortal Kombat X
+running. You never have to remember to launch anything, and there's
+nothing to configure in Steam or anywhere else — unlike the GameCube
+sister projects below, where digging into RetroArch's network-command
+settings was the single biggest setup complaint, this has no equivalent
+step: no external emulator, no config file to edit, no admin rights
+needed (it uses your personal Startup folder, not Task Scheduler).
 
-Requires NVDA running. See `ocr_reader/run_reader.bat` /
-`start_reader.vbs` to auto-start alongside the game via a Steam launch
-option, same as the sister projects.
+To remove it later, run `uninstall.bat` — it deletes the Startup shortcut
+and nothing else (your `known_screens/` captures are untouched).
+
+Prefer to run it by hand instead of auto-starting? `python ocr_reader/main.py`
+works the same way `install.bat` runs it, just not automatic.
 
 ## Sister projects (same author, same overall approach)
 

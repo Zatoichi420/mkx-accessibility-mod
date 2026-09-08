@@ -270,8 +270,10 @@ Client speech backend, same hardened reliability patterns — NVDA startup
 retry, `speak()` failure self-heal with audible beep, PID-lock duplicate-
 instance protection, consecutive-poll-failure exit threshold). Also copied
 `nvda_controller_client/` (the redistributable NVDA SDK) and the
-`run_reader.bat`/`start_reader.vbs` Steam-launch-option auto-start
-mechanism. `requirements.txt` matches Legacy Kollection's pinned versions
+`run_reader.bat`/`start_reader.vbs` launch scripts (superseded as the
+*setup* mechanism by `install.bat`'s Startup-folder shortcut — see below —
+but still what actually runs the reader either way). `requirements.txt`
+matches Legacy Kollection's pinned versions
 (pywin32, pillow, numpy, winsdk) — already installed in this machine's
 Python and confirmed importable.
 
@@ -287,6 +289,48 @@ Game-specific changes from the Legacy Kollection original:
   they were tuned for that launcher's cyan/gold highlight style, not
   MKX's (unknown, Scaleform-rendered) style. Safe failure mode until
   recalibrated: highlight detection just won't fire, not fire wrong.
+
+### Setup: `install.bat` / `uninstall.bat` (2026-09-08, third session)
+
+User feedback on the Deadly Alliance/Deception sister projects: setup
+wasn't easy, mainly because of digging into RetroArch's network-command
+settings (an external tool's config, off by default, easy to get wrong).
+MKX has no equivalent external tool, so the goal here was to remove
+*every* manual step, not just match the sister projects' bar.
+
+- **`install.bat`**: installs `requirements.txt`, checks (non-blocking) that
+  NVDA is running, adds a shortcut to the user's **Startup folder**
+  (`shell:startup`) that launches `ocr_reader/start_reader.vbs` hidden at
+  every login, then starts it immediately for the current session too.
+  No Steam launch options to configure (the reader already polls for the
+  game window on its own — it doesn't need to be launched *at the same
+  moment* as the game, just running before or during), no admin rights,
+  no external tool's settings.
+- **First attempt used `schtasks /create ... /sc onlogon`** (Task
+  Scheduler) instead of a Startup-folder shortcut — **failed with "Access
+  is denied"** even for a plain per-user logon trigger. Switched to a
+  Startup-folder shortcut instead (created via a small VBScript,
+  `ocr_reader/install_startup_shortcut.vbs`, since batch alone can't
+  create `.lnk` files) — this never needs elevation, it's just a normal
+  per-user folder write, and is arguably more transparent anyway (a person
+  can see/delete the shortcut directly without knowing what Task Scheduler
+  is). Worth remembering if a future session is tempted to reach for
+  `schtasks` again: try the Startup-folder shortcut first.
+- **`run_reader.bat` was also made portable**: tries the `py` launcher,
+  then `python` on PATH, then falls back to this machine's own known
+  install path as a last resort — not hardcoded to one path first, so this
+  isn't tied to one specific machine if the repo is ever shared.
+- **`uninstall.bat`**: deletes just that Startup shortcut. Doesn't touch
+  `known_screens/` or any captured data.
+- **Verified end-to-end on this machine**: ran `install.bat` for real
+  (with the user's explicit go-ahead, since it's a persistent
+  startup-folder/background-process change) — pip install succeeded, NVDA
+  was detected running, the Startup shortcut was created and its
+  target/arguments verified correct via PowerShell, and the reader
+  actually started (`reader_log.txt` showed "NVDA connection OK", "Loaded
+  0 verified screens", then polling "Waiting for game window..." — exactly
+  the intended hands-off idle state). **It's currently live on this
+  machine**, waiting for MKX to launch.
 
 **Not yet done**: an actual live-test run against the game (needs the game
 sitting at a real menu, which needs either input-injection or the user at
