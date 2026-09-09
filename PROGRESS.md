@@ -407,6 +407,51 @@ screenshot showing it sitting there normally alongside "AVAILABLE NOW" and
 "WAY TO THE TEMPLE / PREMIER TOWER" panels, all part of the standard main
 menu layout.
 
+## Important operational finding: hotkeys don't work on a reader Claude starts (2026-09-08, fifth session)
+
+User reported F1 did nothing (no "Reader on"/"Reader off" announced) and
+asked for it to be investigated directly. Root-caused with three
+escalating tests, each conclusive on its own:
+
+1. A separate process sent a synthetic VK_F1 via `SendInput`; a fresh
+   process's `GetAsyncKeyState` never saw it (returned 0 entirely, not
+   even the "currently down" bit during the press).
+2. A live key-logger watched `GetAsyncKeyState` for F1/F9/F10/Enter/
+   Space/Escape continuously for two full 3-minute windows (6 minutes
+   total) - zero detections, for any of them.
+3. **Decisive test**: within a single process, with no subprocess
+   boundary or timing involved, `SendInput` held VK_F1 down and
+   `GetAsyncKeyState` was polled 10 times over 500ms while it was held -
+   every single check reported "not currently down."
+
+**Conclusion**: `GetAsyncKeyState`-based hotkeys (F1/F9/F10, in
+`was_key_pressed_since_last_check`) do not work for a reader process
+Claude starts via its own tool calls (PowerShell/Bash), regardless of
+what's actually happening on the physical keyboard - that whole process
+tree appears to be unable to observe real input-queue state (whether the
+cause is a Window Station/desktop isolation on the automation side, or
+`SendInput` itself not injecting into a queue that process tree can read
+- either way, the practical result is the same). Screen capture and NVDA
+speech both work completely normally from a Claude-started instance
+(proven repeatedly earlier the same day) since neither depends on this -
+**only the keyboard-polling hotkeys are affected**.
+
+**This retroactively explains and corrects** the second session's
+"input-injection attempt" conclusion above, which guessed the game might
+need a controller or a longer unskippable intro - that `send_key.py` run
+was *also* launched from this same automation context, so it's now clear
+those synthetic keypresses plausibly never reached the game at all,
+independent of anything about the game itself. That theory (controller-
+only input) is unconfirmed either way and shouldn't be trusted based on
+that earlier test.
+
+**Practical rule going forward**: any reader instance meant to have
+working F1/F9/F10 hotkeys must be started by the user directly (double-
+clicking `run_reader.bat`, or via an actual Windows logon triggering the
+Startup-folder shortcut) - never by Claude via PowerShell/Bash. Killed
+the Claude-started instance that was running at the time of this
+finding so the user could start a clean one themselves.
+
 ## Resume point (updated after second 2026-09-08 session)
 
 Everything static-analysis-shaped that could be done without a person at
