@@ -32,11 +32,15 @@ hand-verified any MKX screens yet (see PROGRESS.md's resume point). Until
 it's populated, every screen falls back to live OCR and gets logged to
 library_misses/ for review.
 
-F9 forces an immediate re-read of whatever's on screen right now (fallback
-for screens/dialogs that don't fit the above). F10 captures the current
-screen (screenshot + live OCR) into known_screens/ as a *candidate* new
-library entry - it still needs a canonical_text field hand-verified from
-the image before screen_library.py will treat it as trustworthy.
+F1 toggles the reader on/off without closing it (e.g. to go quiet while a
+sighted friend plays two-player, or to stop narration without losing your
+place in the game) - it always announces the toggle itself even while
+"off", so silence never means "is this even running?". F9 forces an
+immediate re-read of whatever's on screen right now (fallback for screens/
+dialogs that don't fit the above). F10 captures the current screen
+(screenshot + live OCR) into known_screens/ as a *candidate* new library
+entry - it still needs a canonical_text field hand-verified from the image
+before screen_library.py will treat it as trustworthy.
 """
 
 import asyncio
@@ -52,15 +56,13 @@ import numpy as np
 import win32api
 import win32gui
 import win32process
-import win32ui
-from PIL import Image
+from PIL import Image, ImageGrab
 from winsdk.windows.graphics.imaging import BitmapDecoder
 from winsdk.windows.media.ocr import OcrEngine
 from winsdk.windows.storage.streams import DataWriter, InMemoryRandomAccessStream
 
 from screen_library import ScreenLibrary
 
-PW_RENDERFULLCONTENT = 0x00000002
 # Confirmed live 2026-09-08 (see PROGRESS.md): MK10.exe is the actual
 # running game process, not a launcher/stub - MKXLauncher.exe hands off to
 # it directly and doesn't stay running.
@@ -68,6 +70,7 @@ PROCESS_NAME = "MK10.exe"
 POLL_INTERVAL_SECONDS = 0.5
 REREAD_HOTKEY_VK = 0x78  # VK_F9
 CAPTURE_HOTKEY_VK = 0x79  # VK_F10
+TOGGLE_HOTKEY_VK = 0x70  # VK_F1 - mute/unmute the reader without closing it
 # When auto-started alongside the game (see run_reader.bat/start_reader.vbs),
 # there's no terminal to Ctrl+C from, so exit on our own once the game window
 # has been gone this long (covers "player closed the game").
@@ -125,47 +128,21 @@ def find_window_for_process(process_name):
 
 
 def capture_window(hwnd):
-    left, top, right, bottom = win32gui.GetClientRect(hwnd)
-    width = right - left
-    height = bottom - top
-    if width <= 0 or height <= 0:
-        return None
-
-    hwnd_dc = None
-    mfc_dc = None
-    save_dc = None
-    save_bitmap = None
-    try:
-        hwnd_dc = win32gui.GetWindowDC(hwnd)
-        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
-        save_dc = mfc_dc.CreateCompatibleDC()
-
-        save_bitmap = win32ui.CreateBitmap()
-        save_bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
-        save_dc.SelectObject(save_bitmap)
-
-        ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), PW_RENDERFULLCONTENT)
-
-        bmpinfo = save_bitmap.GetInfo()
-        bmpstr = save_bitmap.GetBitmapBits(True)
-        img = Image.frombuffer(
-            "RGB",
-            (bmpinfo["bmWidth"], bmpinfo["bmHeight"]),
-            bmpstr, "raw", "BGRX", 0, 1,
-        )
-        return img
-    finally:
-        # Always release GDI resources, even if a call above raised - leaving
-        # any of these held leaks a handle every poll (twice a second) and
-        # can eventually exhaust the process's GDI handle quota.
-        if save_bitmap is not None:
-            win32gui.DeleteObject(save_bitmap.GetHandle())
-        if save_dc is not None:
-            save_dc.DeleteDC()
-        if mfc_dc is not None:
-            mfc_dc.DeleteDC()
-        if hwnd_dc is not None:
-            win32gui.ReleaseDC(hwnd, hwnd_dc)
+    """Confirmed live 2026-09-08 (see PROGRESS.md): grabs the whole desktop
+    instead of using PrintWindow on `hwnd` directly. PrintWindow worked
+    during the game's windowed intro cinematics but went silently dark
+    (zero-size capture, no error) once the game settled into its real
+    fullscreen main menu - GetWindowRect on the game's own window also
+    starts returning a bogus placeholder rect (large negative coordinates)
+    at that point, which is the same underlying symptom: whatever mode
+    MKX's fullscreen actually is, this window handle stops being a usable
+    GDI capture source for it. A screen shows the true fullscreen content
+    fine (verified against the game live), so `hwnd` is now only used to
+    detect that the game is running at all, not for capture geometry -
+    this game has no in-game windowed/borderless option to fall back to
+    instead (confirmed via sighted assistance), so this isn't optional.
+    """
+    return ImageGrab.grab(all_screens=True)
 
 
 async def ocr_image(img: Image.Image):
@@ -450,6 +427,7 @@ def main():
         hwnd_ever_found = False
         window_missing_since = None
         consecutive_poll_failures = 0
+        reader_enabled = True
 
         # screen_key identifies "what's currently on screen" for change detection:
         # ("lib", screen_id) when the library recognized it, ("ocr", tuple_of_lines)
@@ -477,6 +455,21 @@ def main():
 
         while True:
             try:
+                if was_key_pressed_since_last_check(TOGGLE_HOTKEY_VK):
+                    reader_enabled = not reader_enabled
+                    # Bypass reader_enabled here on purpose - the toggle
+                    # itself must always be audible, even when turning the
+                    # reader off, or silence could mean either "it's off"
+                    # or "it's broken" with no way to tell which.
+                    speaker.speak("Reader on." if reader_enabled else "Reader off.")
+                    reset_tracking()
+                    time.sleep(POLL_INTERVAL_SECONDS)
+                    continue
+
+                if not reader_enabled:
+                    time.sleep(POLL_INTERVAL_SECONDS)
+                    continue
+
                 if hwnd is None or not win32gui.IsWindow(hwnd):
                     hwnd = find_window_for_process(PROCESS_NAME)
                     if hwnd is None:

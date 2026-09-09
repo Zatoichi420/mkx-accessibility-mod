@@ -361,6 +361,52 @@ Online play / Kombat League / matchmaking, live round-by-round fighting
 narration, Krypt loot-grinding minutiae. Mirrors the precedent set in the
 Deception project; revisit later if the baseline works.
 
+## Live fix: PrintWindow capture goes dark in fullscreen (2026-09-08, fourth session)
+
+With the user actually at the main menu (confirmed via Be My Eyes: main
+menu, "KRYPT" highlighted, panels for a DLC character/"WHITE LOTUS"
+faction/"COMING SOON"), the reader had gone silent. `reader_log.txt` had
+stopped updating minutes earlier. Root cause: `capture_window()`'s
+`PrintWindow`-based capture (via the game's own `hwnd`) works fine during
+the windowed intro cinematics but **silently returns a zero-size capture
+once MKX settles into its real fullscreen menu** - no error, which is
+itself a bug (the codebase's own philosophy, inherited from Legacy
+Kollection, is to never fail silently - `capture_window` returning `None`
+just gets skipped with no log line or beep). `GetWindowRect` on the game's
+window starts returning a bogus placeholder rect (large negative
+coordinates) at the same point, the same underlying symptom.
+
+Sighted assistance confirmed MKX's Options has **no windowed/borderless
+display-mode toggle** - it's fullscreen-only, so "switch to windowed"
+wasn't a viable fix. Tested instead whether a **plain whole-desktop grab**
+(`PIL.ImageGrab.grab(all_screens=True)`, ordinary GDI `BitBlt` against the
+desktop rather than `PrintWindow` against one window) could see through
+it - captured a real, correct frame of the live fullscreen main menu on
+the first try. **Fix applied**: `capture_window()` now always does a
+full-desktop grab; `hwnd`/`find_window_for_process` are still used to
+detect that the game is running at all, just not for capture geometry.
+`tools/capture_now.py` updated the same way. Verified live: after
+restarting the reader, it immediately produced a clean recognition
+("Welcome to The Krypt! Krypt Gateway (0, 0) Continue") from the real
+running game.
+
+**Also added**: an F1 hotkey (`TOGGLE_HOTKEY_VK`) to mute/unmute the
+reader without closing it (per the user's request) - always announces the
+toggle itself even when muting, so silence never has two possible causes.
+
+**Not yet fixed**: the underlying silent-failure pattern (capture returning
+`None` with no log/beep) that made this take minutes to notice rather than
+being immediately obvious - worth hardening later, e.g. beep after N
+consecutive zero-size captures, matching the `_audible_alert()` pattern
+already used for NVDA failures.
+
+**Also noted, not a bug**: the "faction wars" thing the user saw on every
+launch is a permanent panel on the main menu itself (globe icon, "LB"
+button prompt), not a one-time popup - confirmed via a live desktop-grab
+screenshot showing it sitting there normally alongside "AVAILABLE NOW" and
+"WAY TO THE TEMPLE / PREMIER TOWER" panels, all part of the standard main
+menu layout.
+
 ## Resume point (updated after second 2026-09-08 session)
 
 Everything static-analysis-shaped that could be done without a person at
