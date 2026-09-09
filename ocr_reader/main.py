@@ -32,12 +32,12 @@ hand-verified any MKX screens yet (see PROGRESS.md's resume point). Until
 it's populated, every screen falls back to live OCR and gets logged to
 library_misses/ for review.
 
-F1 toggles the reader on/off without closing it (e.g. to go quiet while a
+F10 toggles the reader on/off without closing it (e.g. to go quiet while a
 sighted friend plays two-player, or to stop narration without losing your
 place in the game) - it always announces the toggle itself even while
 "off", so silence never means "is this even running?". F9 forces an
 immediate re-read of whatever's on screen right now (fallback for screens/
-dialogs that don't fit the above). F10 captures the current screen
+dialogs that don't fit the above). F2 captures the current screen
 (screenshot + live OCR) into known_screens/ as a *candidate* new library
 entry - it still needs a canonical_text field hand-verified from the image
 before screen_library.py will treat it as trustworthy.
@@ -69,8 +69,8 @@ from screen_library import ScreenLibrary
 PROCESS_NAME = "MK10.exe"
 POLL_INTERVAL_SECONDS = 0.5
 REREAD_HOTKEY_VK = 0x78  # VK_F9
-CAPTURE_HOTKEY_VK = 0x79  # VK_F10
-TOGGLE_HOTKEY_VK = 0x70  # VK_F1 - mute/unmute the reader without closing it
+CAPTURE_HOTKEY_VK = 0x71  # VK_F2
+TOGGLE_HOTKEY_VK = 0x79  # VK_F10 - mute/unmute the reader without closing it
 # When auto-started alongside the game (see run_reader.bat/start_reader.vbs),
 # there's no terminal to Ctrl+C from, so exit on our own once the game window
 # has been gone this long (covers "player closed the game").
