@@ -446,11 +446,26 @@ only input) is unconfirmed either way and shouldn't be trusted based on
 that earlier test.
 
 **Practical rule going forward**: any reader instance meant to have
-working F1/F9/F10 hotkeys must be started by the user directly (double-
-clicking `run_reader.bat`, or via an actual Windows logon triggering the
+working hotkeys must be started by the user directly (double-clicking
+`run_reader.bat`, or via an actual Windows logon triggering the
 Startup-folder shortcut) - never by Claude via PowerShell/Bash. Killed
 the Claude-started instance that was running at the time of this
 finding so the user could start a clean one themselves.
+
+**Confirmed working** via `tools/test_hotkeys.py`/`test_hotkeys.bat` (a
+standalone tester added for exactly this - the user double-clicks it
+themselves, and it speaks each detected key aloud via NVDA in real time,
+so the test is directly usable without sight and without needing Claude
+to read a log afterward): the user ran it themselves and it correctly
+announced 15 keypresses. Confirms hotkeys work fine in general - the
+whole problem really was just "don't launch the reader via automation."
+
+**Hotkeys remapped per user preference** (F1 felt wrong to them; F9/F10
+already meant other things) - final assignment:
+- **F9** - force an immediate re-read of the current screen (unchanged).
+- **F10** - on/off toggle (moved from F1).
+- **F2** - capture current screen into `known_screens/` as a candidate
+  entry (moved from F10, so nothing was lost).
 
 ## Resume point (updated after second 2026-09-08 session)
 
