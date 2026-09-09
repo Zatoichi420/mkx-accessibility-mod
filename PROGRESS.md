@@ -467,29 +467,41 @@ already meant other things) - final assignment:
 - **F2** - capture current screen into `known_screens/` as a candidate
   entry (moved from F10, so nothing was lost).
 
-## Resume point (updated after second 2026-09-08 session)
+## End-of-evening status (2026-09-08)
 
-Everything static-analysis-shaped that could be done without a person at
-the controls has been done: Phase 1's OCR baseline is scaffolded, and
-Phase 2 now has concrete read targets from the PDB's type info —
-`UIGridSelectionCursor::selectionTableIndex` in particular is the field to
-read for "which menu item is selected." What's blocking further progress
-on both phases is the same thing an unattended session can't solve: **the
-game does not reach an interactive menu on its own** — it sits on a
-multi-minute, apparently input-immune cinematic attract reel (see the
-"Input-injection attempt" note above). A real person needs to either wait
-it out or provide input the synthetic keyboard approach didn't (possibly a
-controller).
+**Confirmed working, live, end to end**: the user started the reader
+themselves (`ocr_reader/run_reader.bat`), reached the actual main menu
+(the earlier "input-immune cinematic reel" turned out to just need a
+person there, and separately needed the title screen's own controller
+prompt - see below), and confirmed hearing narration of **the main menu,
+the pause menu, and Steam's own UI**, plus working F9/F10/F2 hotkeys via
+the standalone `tools/test_hotkeys.py` tester (15 keypresses correctly
+announced). This is the first fully-confirmed-live session for this
+project.
 
-**When you're back, in order of what unblocks the most:**
-1. Launch the game yourself and get it past the intro to the actual main
-   menu (note whether keyboard alone ever does it, or whether you needed a
-   controller/took longer than ~6 minutes — that's useful data either way).
-2. Once at the main menu, either: let me poll `GUIScreenManager` and
-   `UIGridSelection::mCursors[].selectionTableIndex` live while you move
-   the cursor (fastest way to confirm the Phase 2 read targets above are
-   right), and/or run `ocr_reader/main.py` and press F10 on a few screens
-   to seed `known_screens/` (also gives real pixels to calibrate the
-   highlight-color thresholds against).
-3. Everything else in this file's Phase 0/1/2/3 sections still applies
-   once past that point.
+**New finding**: the "MORTAL KOMBAT XL" title screen explicitly displays
+"PRESS THE A BUTTON" (confirmed via a live screenshot) - a controller
+prompt, not a keyboard one. This is the more likely explanation for the
+second session's unattended input-injection attempt never getting past
+the intro, rather than anything about the reel itself being unskippable -
+though see the fifth session's finding above, that test's synthetic input
+may also just never have reached anything at all. Whether there's a
+keyboard equivalent for this specific screen is still unconfirmed - see
+CONTRIBUTING.md.
+
+## Resume point
+
+1. **Phase 3 (highest value right now)**: build out `known_screens/`
+   entries for the screens already confirmed reachable - main menu, pause
+   menu - using F2 to capture and hand-verifying `canonical_text` against
+   what's actually on screen. This is also the natural moment to sample
+   real selected-vs-unselected menu text pixel colors and fix the
+   `NEEDS_CALIBRATION` highlight thresholds in `ocr_reader/main.py`.
+2. **Phase 2**: dump `TMap`/`TArray`'s own layout via
+   `tools/dump_type_layout.py` (pure static analysis, no game needed),
+   then try live-reading `UIGridSelection::mCursors[].selectionTableIndex`
+   while the cursor moves at the main menu, to confirm it's the right
+   field.
+3. Confirm whether the title screen's "PRESS THE A BUTTON" prompt has a
+   keyboard equivalent, for the sake of anyone without a controller.
+4. Everything else in this file's Phase 0/1/2/3 sections still applies.

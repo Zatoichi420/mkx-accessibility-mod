@@ -4,13 +4,18 @@ A planned tool to make **Mortal Kombat X** (Steam, appid `307780`, installed as 
 usable without sight — starting with the launcher/menus, mode select, character
 select, and options, the same scope the sister projects below started with.
 
-**Status: Phase 1 baseline running, Phase 0 research well underway.** A
-working OCR + reference-library narrator (ported from Legacy Kollection,
-see `ocr_reader/`) is in place, though its `known_screens/` library is
-still empty — nobody has captured/verified an MKX screen yet, so today it
-falls back to live OCR for everything. In parallel, Phase 0's static/live
-memory analysis has already found real, named hook targets for a faster,
-exact Phase 2 narrator. See [PROGRESS.md](PROGRESS.md) for the full log.
+**Status: confirmed working live, 2026-09-08.** The reader narrates the
+main menu, the pause menu, and Steam's own UI via live OCR — its
+`known_screens/` reference library is still empty (nobody's hand-verified
+an entry yet), so today everything is read via live OCR rather than a
+pre-verified library, but it works end-to-end right now. F9 (re-read), F10
+(on/off toggle), and F2 (capture a screen for the library) all work, as
+long as the reader is started by you directly rather than by an outside
+tool. In parallel, Phase 0/2's memory analysis has already found the
+concrete field (`UIGridSelectionCursor::selectionTableIndex`) a future,
+faster, exact narrator would read instead of guessing from pixels. See
+[PROGRESS.md](PROGRESS.md) for the full log and
+[CONTRIBUTING.md](CONTRIBUTING.md) for what would help most right now.
 
 ## Setup
 
@@ -30,6 +35,13 @@ and nothing else (your `known_screens/` captures are untouched).
 
 Prefer to run it by hand instead of auto-starting? `python ocr_reader/main.py`
 works the same way `install.bat` runs it, just not automatic.
+
+While it's running: **F9** re-reads the current screen, **F10** toggles the
+reader on/off (announces itself either way, so silence never means "is
+this broken?"), and **F2** saves the current screen as a candidate
+[known_screens](ocr_reader/known_screens) entry. These only respond if you
+started the reader yourself (double-click, or a real Windows login) — see
+[PROGRESS.md](PROGRESS.md) if a hotkey ever seems unresponsive.
 
 ## Sister projects (same author, same overall approach)
 
@@ -51,10 +63,16 @@ carries over via `ReadProcessMemory` against the game's own process. See
 PROGRESS.md for what's already been scouted on this machine's actual MKX install
 that makes this look more promising than the Legacy Kollection situation.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for what would help most right now —
+`known_screens/` library entries and highlight-color calibration are the
+top two. Be kind: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
 ## Legal
 
 No game code or assets included or ever will be. Read-only: this reads values
 from the game's own memory/screen at runtime and speaks them, the same
 no-modification stance as the sister projects. You need your own legally owned
 copy of Mortal Kombat X. Not affiliated with or endorsed by Warner Bros. or
-NetherRealm Studios.
+NetherRealm Studios. See [LICENSE](LICENSE) (MIT).
