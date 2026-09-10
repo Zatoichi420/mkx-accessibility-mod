@@ -111,7 +111,14 @@ def callback(sym_info_ptr, size, ctx):
     total[0] += 1
     info = sym_info_ptr.contents
     addr = ctypes.addressof(info)
-    name = ctypes.wstring_at(addr + NAME_OFFSET, info.NameLen).rstrip()
+    # NameLen includes the NUL terminator, and str.rstrip() does NOT strip
+    # "\x00" - so a bare .rstrip() leaves "Foo\x00", which silently breaks
+    # every "$"-anchored regex while substring searches still work. That
+    # exact discrepancy produced a wrong conclusion once already ("this
+    # engine has no stock UE3 globals" - it does; see the MKX PROGRESS.md
+    # correction). Cut at the first NUL, then strip whitespace.
+    raw = ctypes.wstring_at(addr + NAME_OFFSET, info.NameLen)
+    name = raw.split("\x00", 1)[0].strip()
     for p, rx in compiled.items():
         if rx is None or rx.search(name):
             matches[p].append((info.Address - base, name))
