@@ -489,6 +489,77 @@ may also just never have reached anything at all. Whether there's a
 keyboard equivalent for this specific screen is still unconfirmed - see
 CONTRIBUTING.md.
 
+## The complete memory-read recipe (2026-09-10) — supersedes the earlier "Phase 2 is blocked on TMap layout" note
+
+Two corrections make this whole phase much more tractable than previously
+recorded here:
+
+1. **The "no stock UE3 globals" claim in this file was wrong** — a false
+   negative from the NUL-terminator bug in `tools/dump_pdb_symbols.py`
+   (fixed; see its commit). The engine keeps UE3's object model intact.
+2. **The path doesn't run through `GUIScreenManager`'s `TMap` at all.**
+   Walking `GObjObjects` is simpler, uses only `TArray`, and gives both
+   "which screen" and "which item is selected" directly.
+
+All offsets below are **RVAs verified from `MK10.pdb`** via
+`dump_pdb_symbols.py` / `dump_type_layout.py`. Add them to the runtime
+module base (ASLR is active — resolve the base with
+`CreateToolhelp32Snapshot`, as `tools/live_check.py` already does).
+
+**Globals**
+- `UObject::GObjObjects` — `+0x38004B0` — `TArray<UObject*>`, the global object array
+- `FName::Names` — `+0x3800518` — `TArray<FNameEntry*>`, the name pool
+- `GEngine` — `+0x347ECA0`, `GWorld` — `+0x347FB08` (not needed for menus, noted for completeness)
+
+**`TArray<T>`** (sizeof 16) — standard UE3 layout: `Data` ptr `+0x00`,
+`Num` int32 `+0x08`, `Max` int32 `+0x0C`. *Inferred* from the standard
+layout plus the confirmed 16-byte size — the PDB reports no child fields
+(they live in the allocator base). Trivially checked live: read `Num` on
+`GObjObjects` and confirm it's a plausible object count.
+
+**`UObject`** (sizeof 96) — `Index` int32 `+0x10`, `Outer` `+0x40`,
+**`Name` (FName) `+0x48`**, **`Class` (UClass*) `+0x50`**
+
+**`FName`** (sizeof 8) — `Index` int32 `+0x00`, `Number` int32 `+0x04`
+
+**`FNameEntry`** (sizeof 144) — `Index` `+0x00`, **`Name` (ANSI `char[128]`) `+0x10`**
+
+**Resolving any object's class name** (the key primitive):
+```
+cls        = read_ptr(obj + 0x50)          # UClass* (a UObject itself)
+nameIndex  = read_i32(cls + 0x48)          # its FName.Index
+entryPtr   = read_ptr(NamesData + 8*nameIndex)
+className  = read_cstring(entryPtr + 0x10) # ANSI, up to 128 bytes
+```
+
+**Getting the selected menu item** (already-known struct layouts):
+- `UIGridSelection` (sizeof 96) — `mNavTable` `TArray` `+0x20`,
+  **`mCursors` `TArray<UIGridSelectionCursor>` `+0x30`**,
+  `mNavTableCellLockState` `+0x40`, `mNavVisibleState` `+0x50`
+- `UIGridSelectionCursor` (sizeof 16) — **`selectionTableIndex` int32
+  `+0x00`**, `bIsActive` `+0x04`, `bIsSelected` `+0x08`,
+  `bCursorHidden` `+0x0C`
+
+So: walk `GObjObjects`, resolve each object's class name, find the live
+`UIGridSelection`-family instance (and the active `UI*Screen` instance,
+which also identifies *which* screen you're on), then read
+`mCursors[0].selectionTableIndex`. That's a handful of pointer reads per
+poll — **cheaper than a screen capture, and exact instead of guessed**.
+
+### What this changes about the architecture
+
+Item *labels* are static per screen (Main Menu is always One Player, Two
+Player, Online, Faction, Krypt, Options, Extras, Exit). So exact index
+from memory + a tiny hand-written label list per screen replaces the
+entire OCR/dHash/`known_screens/` mechanism for mapped screens — no
+screenshots, no perceptual hashing, no highlight-colour calibration, and
+it's immune to resolution changes, animated highlights, and the rotating
+promo panels that currently spam false "screen changed" events.
+
+OCR stays as the fallback backend for screens not yet mapped, behind a
+`StateProvider` seam, so screens convert one at a time rather than in a
+big-bang rewrite. See the `reference_game_accessibility_approach` notes.
+
 ## Resume point
 
 1. **Phase 3 (highest value right now)**: build out `known_screens/`
