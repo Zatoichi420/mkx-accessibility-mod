@@ -1,0 +1,33 @@
+{
+  "_README": [
+    "Static menu labels per screen class. The memory provider supplies the",
+    "exact selected index; this supplies the words. Together they replace",
+    "OCR + dHash + known_screens/ + highlight-colour calibration for any",
+    "screen listed here.",
+    "",
+    "IMPORTANT - index ordering is NOT verified yet. selectionTableIndex",
+    "indexes into the screen's mNavTable, and while that usually matches",
+    "visual top-to-bottom order, it is not guaranteed to. Verify each",
+    "screen live before trusting it: run `python memory_provider.py --probe`,",
+    "move the cursor one step at a time, and confirm the index increments",
+    "in the same direction as the visual selection. Getting this wrong",
+    "produces confidently-wrong narration, which is worse than none.",
+    "",
+    "Provenance matters here - record where each list came from."
+  ],
+
+  "UIMainMenuScreen": {
+    "items": [
+      "One Player",
+      "Two Player",
+      "Online",
+      "Faction",
+      "Krypt",
+      "Options",
+      "Extras",
+      "Exit to Windows"
+    ],
+    "_provenance": "Read directly from a full-resolution screenshot of the live game, 2026-09-08. An earlier sighted description of the same screen listed only 7 items ending in 'Quit to Main Menu' - the 8-item list here is from the screenshot and is believed correct, but the discrepancy is unresolved and worth confirming.",
+    "_index_order_verified": false
+  }
+}

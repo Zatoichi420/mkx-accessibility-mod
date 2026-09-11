@@ -58,6 +58,8 @@ import win32gui
 import win32process
 from PIL import Image, ImageGrab
 from winsdk.windows.graphics.imaging import BitmapDecoder
+
+from memory_provider import MemoryStateProvider
 from winsdk.windows.media.ocr import OcrEngine
 from winsdk.windows.storage.streams import DataWriter, InMemoryRandomAccessStream
 
@@ -407,6 +409,16 @@ def was_key_pressed_since_last_check(vk):
     return (win32api.GetAsyncKeyState(vk) & 0x1) != 0
 
 
+def humanize_screen_id(screen_id):
+    """"UIMainMenuScreen" -> "Main Menu". Only used for the screen-level
+    announcement; the memory provider's own screen_labels.json supplies
+    the actual item text."""
+    name = re.sub(r"^UI", "", screen_id)
+    name = re.sub(r"Screen$", "", name)
+    name = re.sub(r"(?<!^)(?=[A-Z])", " ", name).strip()
+    return name or screen_id
+
+
 def main():
     print("MKX accessibility reader starting...")
 
@@ -420,6 +432,13 @@ def main():
 
         library = ScreenLibrary()
         print(f"Loaded {len(library.entries)} verified screens into the recognition library.")
+
+        # Primary path for screens with a verified memory-read label
+        # (screen_labels.json): exact selected index straight from the
+        # game's own UE3 object graph, no screenshot or OCR involved.
+        # Falls through to the library/OCR path below for anything not
+        # yet mapped there - see PROGRESS.md's memory-read recipe.
+        memory_provider = MemoryStateProvider()
 
         speaker.speak("Accessibility reader ready.")
 
@@ -493,6 +512,13 @@ def main():
                     time.sleep(POLL_INTERVAL_SECONDS)
                     continue
 
+                # mem_state.items is only populated for screens listed in
+                # screen_labels.json - an unmapped screen (or the process
+                # not being attachable) falls straight through to the
+                # existing library/OCR path below, unchanged.
+                mem_state = memory_provider.get_state()
+                mem_mapped = mem_state is not None and mem_state.items
+
                 force_reread = was_key_pressed_since_last_check(REREAD_HOTKEY_VK)
                 force_capture = was_key_pressed_since_last_check(CAPTURE_HOTKEY_VK)
 
@@ -508,7 +534,12 @@ def main():
                 match_result = library.match(img)
 
                 if force_reread:
-                    if match_result:
+                    if mem_mapped:
+                        print(f"Manual re-read (F9): memory-read match '{mem_state.screen_id}'.")
+                        to_speak = mem_state.spoken_selection() or humanize_screen_id(mem_state.screen_id)
+                        screen_key = ("mem", mem_state.screen_id)
+                        highlighted_text = mem_state.spoken_selection()
+                    elif match_result:
                         entry, distance = match_result
                         print(f"Manual re-read (F9): library match '{entry['screen_id']}' (distance={distance}).")
                         highlighted_text = find_highlighted_text_from_entry(img, entry)
@@ -532,8 +563,13 @@ def main():
                     time.sleep(POLL_INTERVAL_SECONDS)
                     continue
 
-                # --- Determine what's on screen this poll, library-first ---
-                if match_result:
+                # --- Determine what's on screen this poll, memory-first, then library, then OCR ---
+                if mem_mapped:
+                    screen_key = ("mem", mem_state.screen_id)
+                    screen_payload = humanize_screen_id(mem_state.screen_id)
+                    screen_ocr_texts = None  # not applicable in memory mode
+                    highlighted_text = mem_state.spoken_selection()
+                elif match_result:
                     entry, distance = match_result
                     screen_key = ("lib", entry["screen_id"])
                     screen_payload = ". ".join(entry["canonical_text"])
