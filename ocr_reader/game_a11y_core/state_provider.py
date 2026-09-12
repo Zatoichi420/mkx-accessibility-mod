@@ -1,14 +1,17 @@
 """
 The seam between "what is on screen right now" and how we found out.
 
-Two backends implement this:
-  - MemoryStateProvider (memory_provider.py) - reads the game's own UE3
-    object graph. Exact, cheap, immune to resolution/animation/OCR
-    quality. Only knows screens that have been mapped.
-  - OcrStateProvider - the existing capture+OCR+dHash path in main.py,
-    which works on any screen but guesses.
+Originally written for MKX (memory_provider.py reads the game's own UE3
+object graph there) and moved here unchanged 2026-09-12 so every game in
+the family shares one interface. Backends so far:
+  - OcrStateProvider (ocr_state_provider.py, this package) - the existing
+    capture+OCR+dHash path, works on any screen but guesses.
+  - A game's own memory-reading provider (e.g. MKX's MemoryStateProvider)
+    - exact, cheap, immune to resolution/animation/OCR quality, but only
+    knows screens that have been mapped. Game-specific, stays in that
+    game's own repo.
 
-The point of the seam is that screens can convert from guessed to exact
+The point of the seam is that a screen can convert from guessed to exact
 one at a time, rather than as a single big rewrite - and while a screen
 has both, the two can be cross-checked against each other during
 development.
@@ -31,7 +34,7 @@ class ScreenState:
     screen_id: str
     items: List[str] = field(default_factory=list)
     selected_index: int = -1
-    source: str = "unknown"  # "memory" | "ocr" - useful when cross-checking
+    source: str = "unknown"  # e.g. "memory" | "ocr" - useful when cross-checking
 
     @property
     def selected_label(self) -> Optional[str]:

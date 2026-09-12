@@ -21,7 +21,7 @@ import time
 from ctypes import wintypes
 from typing import Dict, List, Optional, Tuple
 
-from state_provider import ScreenState, StateProvider
+from game_a11y_core.state_provider import ScreenState, StateProvider
 
 PROCESS_NAME = "MK10.exe"
 LABELS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screen_labels.json")
