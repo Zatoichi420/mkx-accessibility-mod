@@ -6,7 +6,7 @@ GetAsyncKeyState only works for a process started directly by you, not
 one launched by Claude's automation. This script only means anything if
 you're the one who started it).
 
-Watches F1, F9, F10, Enter, and Escape for 60 seconds and announces each
+Watches F2, F9, F10, Enter, and Escape for 60 seconds and announces each
 one the moment it's detected.
 """
 import ctypes
@@ -15,10 +15,10 @@ import time
 import win32api
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-NVDA_DLL_PATH = os.path.join(SCRIPT_DIR, "..", "ocr_reader", "nvda_controller_client", "x64", "nvdaControllerClient.dll")
+NVDA_DLL_PATH = os.path.join(SCRIPT_DIR, "..", "ocr_reader", "game_a11y_core", "nvda_controller_client", "x64", "nvdaControllerClient.dll")
 
 KEYS = {
-    "F1": 0x70,
+    "F2": 0x71,
     "F9": 0x78,
     "F10": 0x79,
     "Enter": 0x0D,
@@ -42,7 +42,7 @@ def main():
     for vk in KEYS.values():
         win32api.GetAsyncKeyState(vk)  # clear stale state
 
-    speak(f"Hotkey test running for {DURATION_SECONDS} seconds. Press F1, F9, F10, Enter, or Escape.")
+    speak(f"Hotkey test running for {DURATION_SECONDS} seconds. Press F2, F9, F10, Enter, or Escape.")
 
     end_time = time.monotonic() + DURATION_SECONDS
     detected_count = 0

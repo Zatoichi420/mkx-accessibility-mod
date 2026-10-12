@@ -1,0 +1,24 @@
+This project is an independent accessibility tool for Mortal Kombat X
+(Steam, MK10.exe). It does not modify the game or its files. It takes screenshots of
+the running game's window, recognises the screen, and speaks its menus through
+a screen reader or the Windows voice.
+
+It contains no code from the game. The known_screens/ folder holds small
+screenshots of the game's menus, used only so the reader can recognise those
+screens.
+
+"Mortal Kombat" and related marks are trademarks of Warner Bros. Entertainment
+Inc. This project is not affiliated with, endorsed by, or sponsored by Warner
+Bros. or NetherRealm Studios. You must supply your own
+legally-obtained copy of the game.
+
+Third-party components bundled with the installed program:
+
+- NVDA Controller Client (nvdaControllerClient.dll), copyright NV Access
+  Limited, licensed under the GNU Lesser General Public License v2.1. The
+  licence text is included at
+  _internal/game_a11y_core/nvda_controller_client/license.txt in the install
+  folder, and the unmodified DLL is from
+  https://download.nvaccess.org/releases/stable/
+- Python, pywin32, Pillow, NumPy and winsdk, each under its own licence,
+  packaged with PyInstaller.

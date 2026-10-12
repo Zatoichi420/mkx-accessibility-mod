@@ -71,6 +71,12 @@ class ScreenLibrary:
         self.entries = []
         self._load(directory)
 
+    def add_directory(self, directory):
+        """Load a second known_screens/ folder on top of the first (the
+        installed reader adds the user's own folder, since its bundled one
+        is read-only). A missing folder is ignored, same as in __init__."""
+        self._load(directory)
+
     def _load(self, directory):
         if not os.path.isdir(directory):
             return
@@ -102,12 +108,26 @@ class ScreenLibrary:
                 continue
             self.entries.append({
                 "screen_id": data.get("screen_id", name[:-5]),
+                "png_path": png_path,
                 "canonical_text": canonical_text,
                 "notes": data.get("notes", ""),
                 "roi": roi,
                 "hash": img_hash,
                 "capture_size": data.get("capture_size"),
                 "ocr_lines_raw": data.get("ocr_lines_raw", []),
+                # Optional, added 2026-10-11 (used by the MK Legacy
+                # Kollection reader's main.py; ignored by older readers):
+                # title_check = {"bbox": [...], "text": "PLAY"}, OCR'd to
+                # confirm a hash match before trusting it; live_regions =
+                # [{"bbox": [...]}], read by OCR on every poll because their
+                # text changes while the screen stays the same (e.g. the
+                # selected game in the Game Library carousel).
+                "title_check": data.get("title_check"),
+                "live_regions": data.get("live_regions", []),
+                # Optional (2026-10-11): a selection box that moves over a
+                # fixed grid with no printed names (arcade character
+                # select); see main.Reader.grid_selection.
+                "selection_grid": data.get("selection_grid"),
             })
 
     def match(self, frame: Image.Image, max_distance=MATCH_DISTANCE_THRESHOLD):

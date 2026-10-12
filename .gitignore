@@ -1,6 +1,22 @@
+# Python
 __pycache__/
 *.pyc
+.venv/
+.pytest_cache/
+
+# Packaging output (packaging/build.py)
+/build/
+/dist/
+
+# Runtime output, not source. The reader writes these under
+# %LOCALAPPDATA%\MKXAccess now; kept for older checkouts.
 reader.lock
 reader_log.txt
 ocr_reader/library_misses/*
 !ocr_reader/library_misses/.gitkeep
+
+# Developer-mode (F2) full-screen review images - only the cropped .png is a library file
+ocr_reader/known_screens/*.full.png
+
+# Claude Code local session config
+.claude/

@@ -13,7 +13,11 @@
     "in the same direction as the visual selection. Getting this wrong",
     "produces confidently-wrong narration, which is worse than none.",
     "",
-    "Provenance matters here - record where each list came from."
+    "Provenance matters here - record where each list came from.",
+    "",
+    "2026-10-12: not used by the reader. The UI screen classes turned out",
+    "not to be UObjects, so memory_provider.py can't find them - see",
+    "PROGRESS.md, 'Review and port to the installable reader'."
   ],
 
   "UIMainMenuScreen": {

@@ -1,0 +1,4 @@
+# Build and test tools (runtime dependencies are in requirements.txt).
+pyinstaller==6.22.3
+pytest==9.1.1
+markdown==3.10.3

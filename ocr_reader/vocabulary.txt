@@ -1,0 +1,74 @@
+# Words and phrases Mortal Kombat X (XL) shows on screen. Live OCR text
+# close to one of these (see menu_ocr.snap) is replaced by it. One phrase
+# per line, as on screen. Library entries' canonical text is added
+# automatically. Keep this to text actually seen in the game: an invented
+# phrase can pull a misreading towards the wrong word.
+
+# Common
+PRESS THE A BUTTON
+BACK
+SELECT
+CONFIRM
+CANCEL
+CONTINUE
+YES
+NO
+ON
+OFF
+LOADING
+
+# Main menu (screenshot of the live game, 2026-09-08; see screen_labels.json)
+MORTAL KOMBAT XL
+ONE PLAYER
+TWO PLAYER
+ONLINE
+FACTION
+KRYPT
+OPTIONS
+EXTRAS
+EXIT TO WINDOWS
+FACTION WARS
+WHITE LOTUS
+AVAILABLE NOW
+COMING SOON
+WAY TO THE TEMPLE
+PREMIER TOWER
+
+# The Krypt (read live 2026-09-08)
+WELCOME TO THE KRYPT!
+KRYPT GATEWAY
+
+# Fighters (MKX roster incl. XL and Kombat Pack DLC)
+SCORPION
+SUB-ZERO
+RAIDEN
+LIU KANG
+KUNG LAO
+KITANA
+MILEENA
+JOHNNY CAGE
+SONYA BLADE
+CASSIE CAGE
+JAX
+JACQUI BRIGGS
+KENSHI
+TAKEDA
+KOTAL KAHN
+D'VORAH
+FERRA/TORR
+ERRON BLACK
+KUNG JIN
+ERMAC
+QUAN CHI
+SHINNOK
+REPTILE
+KANO
+GORO
+TANYA
+TREMOR
+BO' RAI CHO
+TRIBORG
+JASON VOORHEES
+PREDATOR
+ALIEN
+LEATHERFACE

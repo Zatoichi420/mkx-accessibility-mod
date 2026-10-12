@@ -11,6 +11,7 @@ fullscreen mode makes PrintWindow return a silent zero-size capture
 
 import ctypes
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 
 import win32gui
 import win32ui
@@ -25,10 +26,50 @@ class CaptureStrategy(ABC):
         raise NotImplementedError
 
 
+@contextmanager
+def _dpi_context_of(hwnd):
+    """Run the enclosed calls in the target window's own DPI awareness.
+
+    Added 2026-10-11. GetClientRect and PrintWindow only agree on the
+    image's size when the caller and the window use the same DPI awareness.
+    The reader makes itself DPI-aware (frames.enable_dpi_awareness), which
+    fixed a DPI-aware game captured by an unaware reader. But with display
+    scaling on, a DPI-*unaware* window then reports its scaled-up size while
+    PrintWindow draws it at its unscaled size: the image lands in the
+    top-left corner of a mostly black bitmap and no library screen matches.
+    Reproduced at 150% scaling with packaging/ci/fake_game.py (a Tk window,
+    which is DPI-unaware). Borrowing the window's own awareness for the
+    duration of the capture is correct in both directions, and a no-op when
+    the two already agree. Falls through silently on Windows versions
+    without these calls (before Windows 10 1607).
+    """
+    user32 = ctypes.windll.user32
+    previous = None
+    try:
+        user32.GetWindowDpiAwarenessContext.restype = ctypes.c_void_p
+        user32.GetWindowDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        user32.SetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+        user32.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        context = user32.GetWindowDpiAwarenessContext(hwnd)
+        if context:
+            previous = user32.SetThreadDpiAwarenessContext(context)
+    except (AttributeError, OSError):
+        previous = None
+    try:
+        yield
+    finally:
+        if previous:
+            user32.SetThreadDpiAwarenessContext(previous)
+
+
 class PrintWindowCapture(CaptureStrategy):
     PW_RENDERFULLCONTENT = 0x00000002
 
     def grab(self, hwnd):
+        with _dpi_context_of(hwnd):
+            return self._grab(hwnd)
+
+    def _grab(self, hwnd):
         left, top, right, bottom = win32gui.GetClientRect(hwnd)
         width = right - left
         height = bottom - top
@@ -61,14 +102,18 @@ class PrintWindowCapture(CaptureStrategy):
             # Always release GDI resources, even if a call above raised - leaving
             # any of these held leaks a handle every poll (twice a second) and
             # can eventually exhaust the process's GDI handle quota.
-            if save_bitmap is not None:
-                win32gui.DeleteObject(save_bitmap.GetHandle())
-            if save_dc is not None:
-                save_dc.DeleteDC()
-            if mfc_dc is not None:
-                mfc_dc.DeleteDC()
-            if hwnd_dc is not None:
-                win32gui.ReleaseDC(hwnd, hwnd_dc)
+            # Each release on its own: one failing (seen with MK9's
+            # fullscreen window, "DeleteDC failed") must not skip the rest.
+            for release in (
+                lambda: save_bitmap is not None and win32gui.DeleteObject(save_bitmap.GetHandle()),
+                lambda: save_dc is not None and save_dc.DeleteDC(),
+                lambda: mfc_dc is not None and mfc_dc.DeleteDC(),
+                lambda: hwnd_dc is not None and win32gui.ReleaseDC(hwnd, hwnd_dc),
+            ):
+                try:
+                    release()
+                except Exception:
+                    pass
 
 
 class DesktopGrabCapture(CaptureStrategy):
@@ -86,3 +131,44 @@ class DesktopGrabCapture(CaptureStrategy):
 
     def grab(self, hwnd):
         return ImageGrab.grab(all_screens=True)
+
+
+class AutoCapture(CaptureStrategy):
+    """PrintWindow first; if it gives nothing or a black frame (an exclusive
+    fullscreen DirectX game, as MKX was confirmed to be), grab the screen
+    area under the game's window instead, and keep using that once it has
+    been needed. Added 2026-10-12 for MK9 (MKKE.exe); MKX (MK10.exe) is exclusive fullscreen too."""
+
+    BLACK_MEAN = 6
+
+    def __init__(self):
+        self.window = PrintWindowCapture()
+        self.use_screen = False
+
+    @staticmethod
+    def _black(img):
+        import numpy as np
+
+        return img is None or float(np.asarray(img.convert("L").resize((64, 36))).mean()) < AutoCapture.BLACK_MEAN
+
+    def _screen(self, hwnd):
+        with _dpi_context_of(hwnd):
+            left, top = win32gui.ClientToScreen(hwnd, (0, 0))
+            _, _, width, height = win32gui.GetClientRect(hwnd)
+        if width <= 0 or height <= 0:
+            return ImageGrab.grab(all_screens=True)
+        return ImageGrab.grab(bbox=(left, top, left + width, top + height), all_screens=True)
+
+    def grab(self, hwnd):
+        if not self.use_screen:
+            try:
+                img = self.window.grab(hwnd)
+            except Exception as exc:
+                print(f"Window capture failed ({exc!r}).")
+                img = None
+            if not self._black(img):
+                return img
+            self.use_screen = True
+            print("Window capture is blank (fullscreen game?); capturing the screen under the window instead.")
+        img = self._screen(hwnd)
+        return None if img is None else img.convert("RGB")

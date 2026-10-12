@@ -560,19 +560,121 @@ OCR stays as the fallback backend for screens not yet mapped, behind a
 `StateProvider` seam, so screens convert one at a time rather than in a
 big-bang rewrite. See the `reference_game_accessibility_approach` notes.
 
+## Review and port to the installable reader (2026-10-12)
+
+A code review of `main` found the reader had stopped improving while its
+sister project, Legacy Kollection, gained an installer and many live-tested
+fixes. Problems found, and what was done:
+
+1. **The memory reader could never find anything, and slowed every poll.**
+   `main.py` called `MemoryStateProvider.get_state()` on every 0.5s poll.
+   That walks the whole `GObjObjects` array (hundreds of thousands of
+   `ReadProcessMemory` calls) looking for objects whose class is
+   `UIMainMenuScreen` and the other screen and grid classes. The PDB shows
+   those classes are **not UObjects**, so they are never in that array:
+   - `GameScreenBase` is 80 bytes: vtable, `mScreenName` (`FString`) at
+     `+0x18`, `mScreenItem` at `+0x28`.
+   - `UIMainMenuScreen`'s own fields start at `+0x50`, right after
+     `GameScreenBase`. `UIGridSelection`'s start at `+0x18`.
+   - A `UObject` alone is 96 bytes (`Name` `+0x48`, `Class` `+0x50`), so
+     none of these can be one.
+   - Each of them has a static `MKClassInfo sClassInfo`: NetherRealm's own
+     type system, separate from UE3's `UClass`.
+
+   (Dumped with `tools/dump_type_layout.py UIMainMenuScreen GameScreenBase
+   UIGridSelection UIMainMenuGridSelectWidget UIGridSelectWidget`.) So
+   every poll did a full walk and found nothing. The "complete memory-read
+   recipe" above is right about `GObjObjects` and `FName::Names`, but wrong
+   that the UI is reachable through them. **Fix:** the reader no longer uses
+   the memory provider. `memory_provider.py` stays as a research probe, with
+   this finding in its docstring and full walks limited to one every 5s.
+   **Next lead:** `GUIScreenManager` is a `TMap<FString, UIScreenData>`
+   keyed by screen name, and `GameScreenBase` carries `mScreenName`, so the
+   loaded screens can be named from there once `TMap`'s layout is dumped.
+   Which one is *active* still needs a live session to work out.
+   `screen_labels.json`'s main-menu order was never verified either.
+
+2. **Whole-desktop capture read other programs.** The old capture grabbed
+   the entire desktop whenever `MK10.exe` existed, focused or not. The
+   reader's own `library_misses` show it reading Street Fighter 6, Steam
+   and its own folder in File Explorer while MKX was running in the
+   background. The new reader acts only while the game is the focused
+   window, and captures only the area under the game's window.
+
+3. **Captures were cut off at 150% display scaling.** The 2026-09 captures
+   are 1280x720 crops of the top-left of a 1920x1080 screen. The main menu's
+   lower items (Online and below) and the Options list are cut off. The
+   reader process wasn't DPI-aware: the same bug as Legacy Kollection's,
+   fixed there 2026-10-11. The new reader declares per-monitor DPI
+   awareness before touching any window.
+
+4. **Setup was a batch file and a Startup-folder shortcut** that ran the
+   reader from the user's own checkout (on this PC,
+   `OneDrive\Desktop\MKX-Accessibility`). It spoke only through NVDA,
+   quitting with a beep if NVDA wasn't running within 60s, so JAWS and
+   Narrator users got nothing.
+
+**What replaced it:** the reader built and live-tested for Legacy Kollection
+and already ported to MK9, renamed for MKX:
+- program `mkx-access.exe`, watching `MK10.exe`
+- data folder and sign-in entry `MKXAccess`, environment variable
+  `MKX_ACCESS_DATA_DIR`
+- installer `MKX-Access-Setup`, with its own AppId so it installs beside
+  the other two readers
+
+It brings a per-user Setup.exe with start at sign-in, Start-menu
+Start/Stop/Check, NVDA/JAWS/Windows-voice speech, two-pass OCR with
+vocabulary snapping, row memory, highlight rescue, a noise gate and
+focus-aware pausing. It uses `AutoCapture` (from the MK9 port): window
+capture first, falling back to the screen under the window when exclusive
+fullscreen leaves it blank. The library view is the whole 1920x1080
+frame. The MKX vocabulary is seeded from text seen in the captures, plus
+the MKX/XL roster. Setup deletes the old `MKX Accessibility Reader.lnk`
+Startup shortcut (`[InstallDelete]`), so the two readers don't speak over
+each other.
+
+**Also fixed while porting:**
+- The Check tool reported "The screen library didn't load. Reinstall the
+  reader." whenever the library was empty, which is MKX's normal state for
+  now. It now flags that only when shipped screens fail to load.
+- The CI end-to-end test used Legacy Kollection screens that this repo
+  doesn't have. It now generates two synthetic library screens in the
+  test's own data folder.
+- When run from a virtual environment, the stand-in game window belonged to
+  a process with another name: the venv's `python.exe` is only a launcher.
+  The test now copies the real interpreter.
+- `tools/test_hotkeys.py` pointed at the NVDA DLL's old location, and
+  watched F1 instead of F2.
+- The highlight-colour comment claimed values calibrated for this game.
+  They are Legacy Kollection's, so it's marked `NEEDS_CALIBRATION` again.
+
+**Verified (2026-10-12, no game running):**
+- 48/48 unit tests.
+- `packaging/build.py` builds the program, Setup.exe, the portable zip and
+  checksums.
+- `packaging/ci/smoke_test.py` passes all 33 checks. They cover the
+  self-test, background start and `--stop`, single instance, the
+  end-to-end run against a stand-in `MK10.exe` window, and silent install,
+  upgrade and uninstall, which also removed the old Startup shortcut.
+
+During the port, a bulk text rename also rewrote the binary NVDA controller
+DLL. The corrupted DLL made `--stop`, run by Setup during an upgrade, hang
+for good. The DLL was restored from the original, and the smoke test caught
+it.
+
+**Not yet verified against the real game:** everything in
+`docs/LIVE-TEST-CHECKLIST.md`. That includes whether `AutoCapture` falls
+back cleanly in MKX's fullscreen mode, highlight colours, and the title
+screen's keyboard question.
+
 ## Resume point
 
-1. **Phase 3 (highest value right now)**: build out `known_screens/`
-   entries for the screens already confirmed reachable - main menu, pause
-   menu - using F2 to capture and hand-verifying `canonical_text` against
-   what's actually on screen. This is also the natural moment to sample
-   real selected-vs-unselected menu text pixel colors and fix the
-   `NEEDS_CALIBRATION` highlight thresholds in `ocr_reader/main.py`.
-2. **Phase 2**: dump `TMap`/`TArray`'s own layout via
-   `tools/dump_type_layout.py` (pure static analysis, no game needed),
-   then try live-reading `UIGridSelection::mCursors[].selectionTableIndex`
-   while the cursor moves at the main menu, to confirm it's the right
-   field.
-3. Confirm whether the title screen's "PRESS THE A BUTTON" prompt has a
-   keyboard equivalent, for the sake of anyone without a controller.
-4. Everything else in this file's Phase 0/1/2/3 sections still applies.
+1. **Live pass** with `docs/LIVE-TEST-CHECKLIST.md`: install Setup.exe,
+   start MKX, walk the main menu, Options, The Krypt and the pause menu.
+2. **Highlight calibration** from a full, uncut 1920x1080 capture of the
+   main menu: sample the selected row against an unselected one.
+3. **First `known_screens/` entries**: main menu, Options, pause menu, run
+   with `--dev` and F2. Hash only the fixed title area (`roi`), not the
+   rotating promo panels.
+4. **Memory reads, second attempt:** dump `TMap`/`TSet`'s layout and walk
+   `GUIScreenManager` live, as described in item 1 above.

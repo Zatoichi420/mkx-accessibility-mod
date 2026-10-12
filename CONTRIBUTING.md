@@ -12,9 +12,9 @@ and be kind in issues and PRs — see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 | Area | What's needed |
 |---|---|
 | **`known_screens/` library entries** | It's still empty. Narration works via live OCR everywhere already (main menu, pause menu, Steam's own UI, all confirmed working 2026-09-08), but OCR on this game's stylized font is rough. Capture a screen with F2, hand-verify its `canonical_text` against the real screen, and it'll be read cleanly and instantly from then on instead of guessed at live. See [PROGRESS.md](PROGRESS.md) for the reference-library format (same design as the sister Legacy Kollection project). |
-| **Highlight-color calibration** | `BRIGHTNESS_THRESHOLD`/`BLUE_MINUS_RED_THRESHOLD` in `ocr_reader/main.py` are placeholder values carried over from a different game and explicitly marked `NEEDS_CALIBRATION` — nobody has sampled MKX's actual selected-vs-unselected menu-text colors yet. |
+| **Highlight-color calibration** | `HIGHLIGHT_BRIGHTNESS_THRESHOLD`/`HIGHLIGHT_BLUE_MINUS_RED_THRESHOLD` in `ocr_reader/main.py` are placeholder values carried over from the Legacy Kollection reader and marked `NEEDS_CALIBRATION` — nobody has sampled MKX's actual selected-vs-unselected menu-text colors yet, and the 2026-09 captures were cut off at 150% scaling. |
 | **The title screen's controller prompt** | The "MORTAL KOMBAT XL" title screen shows "PRESS THE A BUTTON" — confirmed live 2026-09-08 via screenshot. Unconfirmed whether there's a keyboard equivalent (Enter/Space were tried unsuccessfully, but under conditions that may not have delivered real input at all — see PROGRESS.md's "hotkeys don't work on a Claude-started reader" finding). Needs someone with a controller, or a keyboard-only player confirming which key (if any) works. |
-| **Phase 2: live memory reads** | A PDB shipped with the retail build named real UI classes — `UIGridSelectionCursor::selectionTableIndex` is the concrete field for "which menu item is selected" (see PROGRESS.md). `tools/dump_type_layout.py` can pull struct layouts from the PDB; `TMap`/`TArray`'s own layout hasn't been dumped yet, which is needed before `GUIScreenManager`/`UIGridSelection` can actually be walked from live process memory. This would make narration exact and instant instead of OCR-guessed. |
+| **Phase 2: live memory reads** | A PDB shipped with the retail build named real UI classes — `UIGridSelectionCursor::selectionTableIndex` is the concrete field for "which menu item is selected" (see PROGRESS.md). The first attempt (`ocr_reader/memory_provider.py`, walking `GObjObjects`) can't work: the UI classes aren't UObjects. The next lead is `GUIScreenManager`'s `TMap<FString, UIScreenData>`, which needs `TMap`'s layout and a live session. This would make narration exact and instant instead of OCR-guessed. |
 | **Character select, options, and other screens** | Only the main menu, pause menu, and Steam's own UI have been exercised live so far. Chapter select, Kombat Kard customize, faction screens, and others are architecturally covered by the same `UIGridSelection`-family classes (see PROGRESS.md) but untested. |
 | **Testing on other MKX versions/builds** | Everything so far is against one specific Steam build (`MK10.pdb`/`MK10.exe` — see PROGRESS.md for the exact facts recorded). A PDB mismatch on a different build would need re-verifying the symbol/offset findings. |
 
@@ -28,46 +28,44 @@ Mirrors the precedent set by the sister GameCube projects — see below:
 
 ## Development setup
 
-You need Mortal Kombat X on Steam (appid `307780`) and NVDA. See
-[README.md](README.md#setup) for the one-click `install.bat` path.
+You need Mortal Kombat X on Steam (appid `307780`), Windows, and Python 3.12.
 
-```bash
+```
 git clone https://github.com/Zatoichi420/mkx-accessibility-mod
 cd mkx-accessibility-mod
-pip install -r requirements.txt
-
-# run it straight from the checkout
-python ocr_reader/main.py
+py -3.12 -m pip install -r requirements.txt -r requirements-dev.txt
+py -3.12 -m pytest tests
+py -3.12 ocr_reader\main.py --dev
+py -3.12 packaging\build.py
 ```
 
-**Important**: run it by double-clicking, or from a terminal *you* opened
-yourself — not from a script or tool that launches it programmatically.
-`ocr_reader/main.py`'s F9/F10/F2 hotkeys rely on `GetAsyncKeyState`, which
-does not see input for a process started by outside automation (confirmed
-2026-09-08, see PROGRESS.md). If you're testing hotkeys and they don't
-respond, this is almost certainly why — it's not a bug in the hotkey code.
+**Important**: run the reader from a terminal *you* opened yourself, not
+from a script or tool that launches it programmatically. Its F9/F10/F2
+hotkeys rely on `GetAsyncKeyState`, which does not see input for a process
+started by outside automation (confirmed 2026-09-08, see PROGRESS.md).
 
 `tools/` has the PDB/memory-analysis scripts (`dump_pdb_symbols.py`,
 `dump_type_layout.py`, `live_check.py`) and small debugging utilities
-(`capture_now.py`, `send_key.py`, `test_hotkeys.py`) used to build the
-Phase 0/2 findings in PROGRESS.md — useful starting points if you're
-picking up the memory-reading work.
+(`capture_now.py`, `send_key.py`, `test_hotkeys.py`) used for the Phase 0/2
+findings in PROGRESS.md.
 
 ## How the code is organised
 
-- `ocr_reader/main.py` — the reader: capture the screen, recognize it
-  (library or OCR fallback), speak on change. Hotkeys live here too.
-- `ocr_reader/screen_library.py` — the reference-library matcher (perceptual
-  image hash against `known_screens/`). Generic, not MKX-specific.
-- `ocr_reader/known_screens/` — hand-verified screen captures + their
-  canonical text. This is what you'd add entries to.
-- `ocr_reader/library_misses/` — auto-logged screens the library didn't
-  recognize, for reviewing what still needs a `known_screens/` entry.
-  Gitignored (runtime output, not source).
-- `ocr_reader/nvda_controller_client/` — the redistributable NVDA speech SDK.
+- `ocr_reader/main.py` — the reader: find the game, capture it, recognise
+  the screen (library or OCR fallback), speak on change; also `--stop`,
+  `--self-test` and the other command-line options.
+- `ocr_reader/menu_ocr.py` — OCR clean-up: two passes, snapping to
+  `vocabulary.txt`, row repair and merging, the noise gate, highlight rescue.
+- `ocr_reader/game_a11y_core/` — capture, OCR, speech (NVDA, JAWS, Windows
+  voice), the screen library matcher and process lifecycle, shared with the
+  Legacy Kollection and MK9 readers.
+- `ocr_reader/known_screens/` — hand-verified screen captures and their
+  canonical text. Empty so far.
+- `ocr_reader/memory_provider.py`, `ocr_reader/screen_labels.json` — the
+  memory-read research probe. Not used by the reader.
+- `packaging/` — PyInstaller build, Inno Setup installer, and the CI smoke
+  test (`packaging/ci/smoke_test.py`) that checks the built program.
 - `tools/` — PDB/memory research scripts and one-off debugging utilities.
-- `install.bat` / `uninstall.bat` — one-click setup (Startup-folder
-  shortcut, no Task Scheduler, no admin rights — see PROGRESS.md for why).
 
 ## Style
 
@@ -82,7 +80,7 @@ picking up the memory-reading work.
 ## Submitting changes
 
 1. Fork, branch off `main`.
-2. Make the change. Test it against the running game if it touches the
+2. Make the change, and run `py -3.12 -m pytest tests`. Test it against the running game if it touches the
    reader — say what you tested in the PR ("navigated the main menu and
    options, heard the right text" / "captured and verified a new
    `known_screens` entry for the character-select screen").
@@ -101,4 +99,4 @@ from the screen (and, eventually, values from the game's own process memory)
 at runtime and speaks them — the same no-modification stance as the sister
 projects. You need your own legally owned copy of Mortal Kombat X. Please
 don't attach installers or extracted game files to issues or PRs — they'll be
-removed. See the legal note in the [README](README.md#legal).
+removed. See the licence note in the [README](README.md#licence).

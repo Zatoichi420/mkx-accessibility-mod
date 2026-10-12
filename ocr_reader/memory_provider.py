@@ -7,6 +7,18 @@ All offsets below are RVAs verified from the shipped MK10.pdb (see the
 "complete memory-read recipe" section of PROGRESS.md). Read-only: this
 opens the process with PROCESS_VM_READ only and never writes to it.
 
+STATUS (2026-10-12): a research probe, NOT used by the reader. The PDB
+shows MKX's UI classes are not UObjects: GameScreenBase is 80 bytes with
+mScreenName at +0x18, UIMainMenuScreen's own fields start at +0x50, and
+UIGridSelection's at +0x18 - a UObject alone is 96 bytes (Name +0x48,
+Class +0x50). They use NetherRealm's own MKClassInfo type system instead,
+so they never appear in GObjObjects and find_by_classes() can't find them.
+The reader used to call get_state() every 0.5s poll, which walked the
+whole object array each time and never found a screen. The likelier path
+to the live screen is GUIScreenManager's TMap<FString, UIScreenData>
+(screens are keyed by name, and GameScreenBase carries mScreenName), which
+needs the TMap layout and a live session. See PROGRESS.md.
+
 Run standalone to check it against a live game:
     python memory_provider.py --probe     # live state, refreshes until Ctrl+C
     python memory_provider.py --once      # one reading, then exit
@@ -54,6 +66,9 @@ CURSOR_BCURSORHIDDEN = 0x0C
 # wrong TArray layout / stale base address early, loudly, instead of
 # silently reading garbage for the rest of the session.
 SANE_OBJECT_COUNT = (1_000, 5_000_000)
+# A full GObjObjects walk is hundreds of thousands of reads. When nothing
+# is found, don't repeat it more often than this.
+MIN_SECONDS_BETWEEN_WALKS = 5.0
 
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_VM_READ = 0x0010
@@ -193,6 +208,8 @@ class MemoryStateProvider(StateProvider):
         # or the object was freed and the read fails).
         self._cached_screen: Tuple[int, str] = (0, "")
         self._cached_grid: int = 0
+        self._last_walk = 0.0
+        self._last_grid_walk = 0.0
 
     @staticmethod
     def _load_labels() -> Dict[str, dict]:
@@ -400,6 +417,9 @@ class MemoryStateProvider(StateProvider):
         ptr, name = self._cached_screen
         if ptr and self._class_name(ptr) == name:
             return ptr, name
+        if time.monotonic() - self._last_walk < MIN_SECONDS_BETWEEN_WALKS:
+            return 0, ""
+        self._last_walk = time.monotonic()
         screens = self.find_by_classes(self.SCREEN_CLASSES)
         if not screens:
             self._cached_screen = (0, "")
@@ -410,6 +430,9 @@ class MemoryStateProvider(StateProvider):
     def _resolve_grid(self) -> int:
         if self._cached_grid and self._class_name(self._cached_grid) in self.GRID_CLASSES:
             return self._cached_grid
+        if time.monotonic() - self._last_grid_walk < MIN_SECONDS_BETWEEN_WALKS:
+            return 0
+        self._last_grid_walk = time.monotonic()
         grids = self.find_by_classes(self.GRID_CLASSES)
         self._cached_grid = grids[0][0] if grids else 0
         return self._cached_grid
