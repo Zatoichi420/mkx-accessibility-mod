@@ -75,6 +75,18 @@ class PrintWindowCapture(CaptureStrategy):
         height = bottom - top
         if width <= 0 or height <= 0:
             return None
+        # PrintWindow draws the WHOLE window, title bar and borders included,
+        # starting at the bitmap's top-left. Found live 2026-10-12 (Legacy
+        # Kollection, windowed mode): a client-sized bitmap held the title bar
+        # plus the game shifted down ~30px, so no library screen matched.
+        # Draw the full window, then crop out the client area. In fullscreen
+        # or borderless the offsets are 0 and nothing changes.
+        win_left, win_top, win_right, win_bottom = win32gui.GetWindowRect(hwnd)
+        client_x, client_y = win32gui.ClientToScreen(hwnd, (0, 0))
+        offset_x = client_x - win_left
+        offset_y = client_y - win_top
+        full_width = max(win_right - win_left, offset_x + width)
+        full_height = max(win_bottom - win_top, offset_y + height)
 
         hwnd_dc = None
         mfc_dc = None
@@ -86,18 +98,19 @@ class PrintWindowCapture(CaptureStrategy):
             save_dc = mfc_dc.CreateCompatibleDC()
 
             save_bitmap = win32ui.CreateBitmap()
-            save_bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
+            save_bitmap.CreateCompatibleBitmap(mfc_dc, full_width, full_height)
             save_dc.SelectObject(save_bitmap)
 
             ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), self.PW_RENDERFULLCONTENT)
 
             bmpinfo = save_bitmap.GetInfo()
             bmpstr = save_bitmap.GetBitmapBits(True)
-            return Image.frombuffer(
+            image = Image.frombuffer(
                 "RGB",
                 (bmpinfo["bmWidth"], bmpinfo["bmHeight"]),
                 bmpstr, "raw", "BGRX", 0, 1,
             )
+            return image.crop((offset_x, offset_y, offset_x + width, offset_y + height))
         finally:
             # Always release GDI resources, even if a call above raised - leaving
             # any of these held leaks a handle every poll (twice a second) and
